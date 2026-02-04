@@ -1,10 +1,47 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
+import { getDeviceNameRejectionError, getModelRejectionError } from "@/lib/validate-model";
 
 const DEVICE_ID_MAX_LEN = 64;
 const VALID_DEVICE_ID = /^[a-zA-Z0-9_-]{1,64}$/;
+const DEVICE_INFO_MAX_RAW_LEN = 8192;
+const MAX_STRING_LEN = 500;
+
+const DETAIL_KEYS = new Set([
+  "userAgent", "platform", "language", "timeZone", "screenWidth", "screenHeight",
+  "brands", "mobile", "platformVersion",
+]);
+
+function toStr(v: unknown): string {
+  if (v == null) return "";
+  const s = String(v);
+  return s.length > MAX_STRING_LEN ? s.slice(0, MAX_STRING_LEN) : s;
+}
+
+function sanitizeDeviceInfo(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (typeof raw.deviceName === "string") out.deviceName = toStr(raw.deviceName);
+  if (typeof raw.modelName === "string") out.modelName = toStr(raw.modelName);
+  if (raw.details && typeof raw.details === "object" && !Array.isArray(raw.details)) {
+    const d = raw.details as Record<string, unknown>;
+    const details: Record<string, unknown> = {};
+    for (const key of Object.keys(d)) {
+      if (!DETAIL_KEYS.has(key)) continue;
+      const v = d[key];
+      if (key === "screenWidth" || key === "screenHeight") {
+        const n = Number(v);
+        if (Number.isFinite(n)) details[key] = n;
+      } else if (key === "mobile") {
+        if (typeof v === "boolean") details[key] = v;
+      } else {
+        details[key] = toStr(v);
+      }
+    }
+    out.details = details;
+  }
+  return out;
+}
 
 export type SubmitResult = { ok: true } | { ok: false; error: string };
 
@@ -28,15 +65,32 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   let deviceInfo: Record<string, unknown> = {};
   const deviceInfoRaw = formData.get("device_info")?.toString();
   if (deviceInfoRaw) {
+    if (deviceInfoRaw.length > DEVICE_INFO_MAX_RAW_LEN) {
+      return { ok: false, error: "Invalid request." };
+    }
     try {
       const parsed = JSON.parse(deviceInfoRaw) as Record<string, unknown>;
       if (typeof parsed === "object" && parsed !== null) {
         deviceInfo = parsed;
       }
     } catch {
-      // ignore invalid JSON
+      return { ok: false, error: "Invalid request." };
     }
   }
+
+  const deviceName = typeof deviceInfo.deviceName === "string" ? deviceInfo.deviceName : undefined;
+  const deviceError = getDeviceNameRejectionError(deviceName);
+  if (deviceError) {
+    return { ok: false, error: deviceError };
+  }
+
+  const modelName = typeof deviceInfo.modelName === "string" ? deviceInfo.modelName : undefined;
+  const modelError = getModelRejectionError(modelName);
+  if (modelError) {
+    return { ok: false, error: modelError };
+  }
+
+  deviceInfo = sanitizeDeviceInfo(deviceInfo);
 
   const supabase = await createClient();
   const safeDeviceId = deviceIdForDb || `f-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
