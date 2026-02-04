@@ -67,7 +67,7 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
 
     let deviceIdRaw = formData.get("device_id");
   if (deviceIdRaw instanceof File) deviceIdRaw = null;
-  let deviceId = (typeof deviceIdRaw === "string" ? deviceIdRaw.trim() : "") || "";
+  const deviceId = (typeof deviceIdRaw === "string" ? deviceIdRaw.trim() : "") || "";
   const deviceIdValid =
     deviceId.length > 0 &&
     deviceId.length <= DEVICE_ID_MAX_LEN &&
