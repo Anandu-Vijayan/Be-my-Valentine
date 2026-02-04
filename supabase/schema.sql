@@ -7,15 +7,17 @@ create table if not exists public.names (
   created_at timestamptz default now()
 );
 
--- Table: submissions (each selection; one per device per name)
+-- Table: submissions (each selection; one per device per name; fingerprint limits incognito abuse)
 create table if not exists public.submissions (
   id uuid primary key default gen_random_uuid(),
   name_id uuid not null references public.names(id) on delete cascade,
   device_id text not null,
   device_info jsonb default '{}',
+  fingerprint_hash text,
   submitted_at timestamptz default now(),
   unique (device_id, name_id)
 );
+-- One submission per (fingerprint_hash, name_id) when fingerprint is set (see migration add_fingerprint_hash.sql)
 
 -- RLS: allow read names and insert submissions for anon
 alter table public.names enable row level security;

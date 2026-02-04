@@ -1,6 +1,8 @@
 "use server";
 
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { getFingerprintHash } from "@/lib/fingerprint";
 import { getDeviceNameRejectionError, getModelRejectionError } from "@/lib/validate-model";
 
 const DEVICE_ID_MAX_LEN = 64;
@@ -124,27 +126,46 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
 
   const safeDeviceId = deviceIdForDb;
 
-  // Enforce one submission per device per name: check before insert so we can return a clear message.
-  const { data: existing } = await supabase
+  // Enforce one submission per device per name.
+  const { data: existingByDevice } = await supabase
     .from("submissions")
     .select("id")
     .eq("device_id", safeDeviceId)
     .eq("name_id", nameId)
     .maybeSingle();
 
-  if (existing) {
+  if (existingByDevice) {
     return { ok: false, error: "You've already submitted this name from this device." };
+  }
+
+  // Same browser/OS fingerprint (e.g. incognito or same machine) can only submit once per name.
+  const headersList = await headers();
+  const fingerprintSecret = process.env.FINGERPRINT_SECRET?.trim();
+  const fingerprintHash = getFingerprintHash(headersList, fingerprintSecret);
+
+  if (fingerprintHash) {
+    const { data: existingByFingerprint } = await supabase
+      .from("submissions")
+      .select("id")
+      .eq("fingerprint_hash", fingerprintHash)
+      .eq("name_id", nameId)
+      .maybeSingle();
+
+    if (existingByFingerprint) {
+      return { ok: false, error: "You've already submitted this name from this device or browser." };
+    }
   }
 
   const { error } = await supabase.from("submissions").insert({
     name_id: nameId,
     device_id: safeDeviceId,
     device_info: deviceInfo,
+    ...(fingerprintHash && { fingerprint_hash: fingerprintHash }),
   });
 
   if (error) {
     if (error.code === "23505") {
-      return { ok: false, error: "You've already submitted this name from this device." };
+      return { ok: false, error: "You've already submitted this name from this device or browser." };
     }
     return { ok: false, error: GENERIC_ERROR };
   }
