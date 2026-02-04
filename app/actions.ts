@@ -93,7 +93,20 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   deviceInfo = sanitizeDeviceInfo(deviceInfo);
 
   const supabase = await createClient();
-  const safeDeviceId = deviceIdForDb || `f-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  const safeDeviceId = deviceIdForDb;
+
+  // Enforce one submission per device per name: check before insert so we can return a clear message.
+  const { data: existing } = await supabase
+    .from("submissions")
+    .select("id")
+    .eq("device_id", safeDeviceId)
+    .eq("name_id", String(nameId))
+    .maybeSingle();
+
+  if (existing) {
+    return { ok: false, error: "You've already submitted this name from this device." };
+  }
+
   const { error } = await supabase.from("submissions").insert({
     name_id: String(nameId),
     device_id: safeDeviceId,
