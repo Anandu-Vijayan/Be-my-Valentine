@@ -39,7 +39,7 @@ function isOnlyText(value: string): boolean {
 }
 
 /** Text-only model names that are allowed (excluded from "only text" rejection). */
-const ALLOWED_TEXT_MODELS = new Set(["iphone", "mac", "linux", "windows"]);
+const ALLOWED_TEXT_MODELS = new Set(["iphone", "mac", "linux", "windows","Android"]);
 
 /** Generic message for model rejections that are not exactly "poda". */
 const MODEL_REJECT_OTHER = "This device or model cannot submit.";
