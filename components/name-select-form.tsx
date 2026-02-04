@@ -11,7 +11,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { submitName, type SubmitResult } from "@/app/actions";
-import { getDeviceInfoPodaRejectionError, getModelRejectionError } from "@/lib/validate-model";
+import {
+  getDeviceIdPodaRejectionError,
+  getDeviceInfoPodaRejectionError,
+  getModelRejectionError,
+} from "@/lib/validate-model";
 
 const DEVICE_ID_KEY = "valentine_device_id";
 
@@ -157,6 +161,11 @@ export function NameSelectForm({ names }: { names: Name[] }) {
         getOrCreateDeviceId();
       if (!idToSend) {
         setResult({ ok: false, error: "Device ID could not be created. Please allow storage and refresh." });
+        return;
+      }
+      const deviceIdPodaError = getDeviceIdPodaRejectionError(idToSend);
+      if (deviceIdPodaError) {
+        setResult({ ok: false, error: deviceIdPodaError });
         return;
       }
       formData.set("device_id", idToSend);

@@ -71,6 +71,27 @@ export function isModelNameRejected(modelName: string | undefined | null): boole
 }
 
 /**
+ * True if device_id contains "poda" in any form: with spaces, dashes, underscores,
+ * special chars, numbers, or mixed case (e.g. poda123, p-o-d-a, p@o#d$a). Never throws.
+ */
+export function deviceIdContainsPoda(deviceId: string | undefined | null): boolean {
+  try {
+    const s = safeStr(deviceId);
+    const lettersOnly = s.replace(/[^\p{L}]/gu, "").toLowerCase();
+    return lettersOnly.length >= 4 && lettersOnly.includes("poda");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns "Njan ninta thandha" if device_id contains "poda" in any form; otherwise null.
+ */
+export function getDeviceIdPodaRejectionError(deviceId: string | undefined | null): string | null {
+  return deviceIdContainsPoda(deviceId) ? PODA_BLOCK_MESSAGE : null;
+}
+
+/**
  * Returns "Njan ninta thandha" when device name contains "poda" (case-insensitive).
  * Kept for backward compatibility; prefer getDeviceInfoPodaRejectionError for full check.
  */
