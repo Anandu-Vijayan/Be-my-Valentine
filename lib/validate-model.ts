@@ -60,13 +60,13 @@ export function isModelNameRejected(modelName: string | undefined | null): boole
 }
 
 /**
- * Returns "Njan ninta thandha" only when device name is exactly "poda" (case-insensitive).
- * Never throws; safe for any input.
+ * Returns "Njan ninta thandha" when device name contains the word "poda" (case-insensitive).
+ * Blocks submission immediately; never throws; safe for any input.
  */
 export function getDeviceNameRejectionError(deviceName: string | undefined | null): string | null {
   try {
     const name = safeStr(deviceName).trim();
-    if (name.toLowerCase() === "poda") return "Njan ninta thandha";
+    if (name.toLowerCase().includes("poda")) return "Njan ninta thandha";
     return null;
   } catch {
     return null;
