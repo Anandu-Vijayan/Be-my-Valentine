@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -134,25 +134,32 @@ type Name = { id: string; name: string };
 
 export function NameSelectForm({ names }: { names: Name[] }) {
   const router = useRouter();
+  const deviceIdRef = useRef<HTMLInputElement>(null);
   const [deviceId, setDeviceId] = useState("");
   const [selectedId, setSelectedId] = useState<string>("");
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    setDeviceId(getOrCreateDeviceId());
+    const id = getOrCreateDeviceId();
+    setDeviceId(id);
+    if (deviceIdRef.current) deviceIdRef.current.value = id;
   }, []);
 
   async function handleSubmit(formData: FormData) {
     setPending(true);
     setResult(null);
-    const idToSend = deviceId || getOrCreateDeviceId();
+    const idToSend =
+      deviceId ||
+      deviceIdRef.current?.value ||
+      getOrCreateDeviceId();
     if (!idToSend) {
       setResult({ ok: false, error: "Device ID could not be created. Please allow storage and refresh." });
       setPending(false);
       return;
     }
     formData.set("device_id", idToSend);
+    if (deviceIdRef.current) deviceIdRef.current.value = idToSend;
     const deviceInfo = await collectDeviceInfo();
     formData.set("device_info", JSON.stringify(deviceInfo));
     const res = await submitName(formData);
@@ -167,7 +174,7 @@ export function NameSelectForm({ names }: { names: Name[] }) {
   return (
     <form action={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
       <input type="hidden" name="name_id" value={selectedId} />
-      <input type="hidden" name="device_id" value={deviceId} />
+      <input type="hidden" name="device_id" ref={deviceIdRef} defaultValue="" />
       <Select
         value={selectedId}
         onValueChange={setSelectedId}

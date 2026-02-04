@@ -14,9 +14,14 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
     return { ok: false, error: "Please select a name." };
   }
 
-  const deviceIdRaw = formData.get("device_id");
-  const deviceId = typeof deviceIdRaw === "string" ? deviceIdRaw.trim() : "";
+  let deviceIdRaw = formData.get("device_id");
+  if (deviceIdRaw instanceof File) deviceIdRaw = null;
+  let deviceId = (typeof deviceIdRaw === "string" ? deviceIdRaw.trim() : "") || "";
   if (!deviceId || deviceId.length > DEVICE_ID_MAX_LEN || !VALID_DEVICE_ID.test(deviceId)) {
+    return { ok: false, error: "Device ID is missing or invalid. Please refresh and try again." };
+  }
+  const deviceIdForDb = String(deviceId).slice(0, DEVICE_ID_MAX_LEN);
+  if (!deviceIdForDb) {
     return { ok: false, error: "Device ID is missing or invalid. Please refresh and try again." };
   }
 
@@ -34,12 +39,12 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   }
 
   const supabase = await createClient();
-  const row: { name_id: string; device_id: string; device_info: Record<string, unknown> } = {
-    name_id: nameId,
-    device_id: deviceId,
+  const safeDeviceId = deviceIdForDb || `f-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  const { error } = await supabase.from("submissions").insert({
+    name_id: String(nameId),
+    device_id: safeDeviceId,
     device_info: deviceInfo,
-  };
-  const { error } = await supabase.from("submissions").insert(row);
+  });
 
   if (error) {
     if (error.code === "23505") {
