@@ -3,6 +3,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
+const DEVICE_ID_MAX_LEN = 64;
+const VALID_DEVICE_ID = /^[a-zA-Z0-9_-]{1,64}$/;
+
 export type SubmitResult = { ok: true } | { ok: false; error: string };
 
 export async function submitName(formData: FormData): Promise<SubmitResult> {
@@ -11,10 +14,33 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
     return { ok: false, error: "Please select a name." };
   }
 
+  const deviceId = formData.get("device_id")?.toString()?.trim();
+  if (!deviceId || deviceId.length > DEVICE_ID_MAX_LEN || !VALID_DEVICE_ID.test(deviceId)) {
+    return { ok: false, error: "Device ID is missing or invalid. Please refresh and try again." };
+  }
+
+  let deviceInfo: Record<string, unknown> = {};
+  const deviceInfoRaw = formData.get("device_info")?.toString();
+  if (deviceInfoRaw) {
+    try {
+      const parsed = JSON.parse(deviceInfoRaw) as Record<string, unknown>;
+      if (typeof parsed === "object" && parsed !== null) {
+        deviceInfo = parsed;
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+
   const supabase = await createClient();
-  const { error } = await supabase.from("submissions").insert({ name_id: nameId });
+  const { error } = await supabase
+    .from("submissions")
+    .insert({ name_id: nameId, device_id: deviceId, device_info: deviceInfo });
 
   if (error) {
+    if (error.code === "23505") {
+      return { ok: false, error: "You've already submitted this name from this device." };
+    }
     return { ok: false, error: error.message };
   }
   return { ok: true };

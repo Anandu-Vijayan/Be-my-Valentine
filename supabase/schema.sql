@@ -7,11 +7,14 @@ create table if not exists public.names (
   created_at timestamptz default now()
 );
 
--- Table: submissions (each selection)
+-- Table: submissions (each selection; one per device per name)
 create table if not exists public.submissions (
   id uuid primary key default gen_random_uuid(),
   name_id uuid not null references public.names(id) on delete cascade,
-  submitted_at timestamptz default now()
+  device_id text not null,
+  device_info jsonb default '{}',
+  submitted_at timestamptz default now(),
+  unique (device_id, name_id)
 );
 
 -- RLS: allow read names and insert submissions for anon
