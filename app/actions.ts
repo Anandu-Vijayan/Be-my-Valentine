@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getFingerprintHash } from "@/lib/fingerprint";
-import { getDeviceNameRejectionError, getModelRejectionError } from "@/lib/validate-model";
+import { getDeviceInfoPodaRejectionError, getModelRejectionError } from "@/lib/validate-model";
 
 const DEVICE_ID_MAX_LEN = 64;
 // Only allow IDs our client generates: UUID v4 or fallback "d-<base36>-<base36>". Rejects spoofed values.
@@ -99,9 +99,9 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
     return { ok: false, error: "Invalid request." };
   }
 
-  const deviceError = getDeviceNameRejectionError(deviceName);
-  if (deviceError) {
-    return { ok: false, error: deviceError };
+  const podaError = getDeviceInfoPodaRejectionError(deviceInfo);
+  if (podaError) {
+    return { ok: false, error: podaError };
   }
 
   const modelError = getModelRejectionError(modelName);

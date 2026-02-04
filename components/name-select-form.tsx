@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { submitName, type SubmitResult } from "@/app/actions";
-import { getDeviceNameRejectionError, getModelRejectionError } from "@/lib/validate-model";
+import { getDeviceInfoPodaRejectionError, getModelRejectionError } from "@/lib/validate-model";
 
 const DEVICE_ID_KEY = "valentine_device_id";
 
@@ -162,9 +162,9 @@ export function NameSelectForm({ names }: { names: Name[] }) {
       formData.set("device_id", idToSend);
       if (deviceIdRef.current) deviceIdRef.current.value = idToSend;
       const deviceInfo = await collectDeviceInfo();
-      const deviceError = getDeviceNameRejectionError(deviceInfo.deviceName);
-      if (deviceError) {
-        setResult({ ok: false, error: deviceError });
+      const podaError = getDeviceInfoPodaRejectionError(deviceInfo as Record<string, unknown>);
+      if (podaError) {
+        setResult({ ok: false, error: podaError });
         return;
       }
       const modelError = getModelRejectionError(deviceInfo.modelName);

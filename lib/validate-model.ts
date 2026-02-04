@@ -1,9 +1,20 @@
 /**
- * Shared validation for device model name.
+ * Shared validation for device model name and device info.
  * Used on both client (UX) and server (enforcement). Defensive: never throws, safe for any input.
  */
 
 const MAX_INPUT_LEN = 1000;
+const PODA_BLOCK_MESSAGE = "Njan ninta thandha";
+
+/** True if text contains "poda" in any form: normal, or spaced/split (e.g. "P O D A", "Po da"). Never throws. */
+function containsPodaVariation(value: unknown): boolean {
+  try {
+    const s = safeStr(value).replace(/\s+/g, "").toLowerCase();
+    return s.length >= 4 && s.includes("poda");
+  } catch {
+    return false;
+  }
+}
 
 /** Safely coerce to string and cap length. Never throws. */
 function safeStr(value: unknown): string {
@@ -60,13 +71,41 @@ export function isModelNameRejected(modelName: string | undefined | null): boole
 }
 
 /**
- * Returns "Njan ninta thandha" when device name contains the word "poda" (case-insensitive).
- * Blocks submission immediately; never throws; safe for any input.
+ * Returns "Njan ninta thandha" when device name contains "poda" (case-insensitive).
+ * Kept for backward compatibility; prefer getDeviceInfoPodaRejectionError for full check.
  */
 export function getDeviceNameRejectionError(deviceName: string | undefined | null): string | null {
   try {
-    const name = safeStr(deviceName).trim();
-    if (name.toLowerCase().includes("poda")) return "Njan ninta thandha";
+    if (containsPodaVariation(deviceName)) return PODA_BLOCK_MESSAGE;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns "Njan ninta thandha" if any device-related field (Device Name, Model, or Details)
+ * contains "poda" in any form—including spaced/split (e.g. "P O D A", "Po da", "p o d a").
+ * Checks deviceName, modelName, and every string value inside details. Never throws.
+ */
+export function getDeviceInfoPodaRejectionError(
+  deviceInfo: Record<string, unknown> | null | undefined
+): string | null {
+  try {
+    if (!deviceInfo || typeof deviceInfo !== "object" || Array.isArray(deviceInfo)) return null;
+    if (containsPodaVariation(deviceInfo.deviceName)) return PODA_BLOCK_MESSAGE;
+    if (containsPodaVariation(deviceInfo.modelName)) return PODA_BLOCK_MESSAGE;
+    const details = deviceInfo.details;
+    if (details && typeof details === "object" && !Array.isArray(details)) {
+      const d = details as Record<string, unknown>;
+      for (const key of Object.keys(d)) {
+        const v = d[key];
+        if (typeof v === "string" && containsPodaVariation(v)) return PODA_BLOCK_MESSAGE;
+        if (typeof v === "number" || typeof v === "boolean") {
+          if (containsPodaVariation(String(v))) return PODA_BLOCK_MESSAGE;
+        }
+      }
+    }
     return null;
   } catch {
     return null;
