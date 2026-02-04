@@ -1,4 +1,20 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a [Next.js](https://nextjs.org) Valentine’s Day app with a name dropdown and admin stats, using [shadcn/ui](https://ui.shadcn.com) and [Supabase](https://supabase.com).
+
+## Setup
+
+1. **Supabase**  
+   - In Supabase Dashboard: **Project Settings > API** copy your **Project URL** and **anon (public) key**.  
+   - In the project root, copy `.env.local.example` to `.env.local` and set:
+     - `NEXT_PUBLIC_SUPABASE_URL`
+     - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+     - `ADMIN_SECRET` (used for `/admin?key=your-secret`).
+
+2. **Database**  
+   In Supabase **SQL Editor**, run the script in `supabase/schema.sql` to create the `names` and `submissions` tables and seed initial names.
+
+3. **Run the app**  
+   `npm run dev` and open [http://localhost:3000](http://localhost:3000).  
+   Admin: [http://localhost:3000/admin?key=YOUR_ADMIN_SECRET](http://localhost:3000/admin?key=YOUR_ADMIN_SECRET).
 
 ## Getting Started
 
