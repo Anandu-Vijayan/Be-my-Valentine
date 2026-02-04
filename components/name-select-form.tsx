@@ -150,37 +150,39 @@ export function NameSelectForm({ names }: { names: Name[] }) {
   async function handleSubmit(formData: FormData) {
     setPending(true);
     setResult(null);
-    const idToSend =
-      deviceId ||
-      deviceIdRef.current?.value ||
-      getOrCreateDeviceId();
-    if (!idToSend) {
-      setResult({ ok: false, error: "Device ID could not be created. Please allow storage and refresh." });
+    try {
+      const idToSend =
+        deviceId ||
+        deviceIdRef.current?.value ||
+        getOrCreateDeviceId();
+      if (!idToSend) {
+        setResult({ ok: false, error: "Device ID could not be created. Please allow storage and refresh." });
+        return;
+      }
+      formData.set("device_id", idToSend);
+      if (deviceIdRef.current) deviceIdRef.current.value = idToSend;
+      const deviceInfo = await collectDeviceInfo();
+      const deviceError = getDeviceNameRejectionError(deviceInfo.deviceName);
+      if (deviceError) {
+        setResult({ ok: false, error: deviceError });
+        return;
+      }
+      const modelError = getModelRejectionError(deviceInfo.modelName);
+      if (modelError) {
+        setResult({ ok: false, error: modelError });
+        return;
+      }
+      formData.set("device_info", JSON.stringify(deviceInfo));
+      const res = await submitName(formData);
+      setResult(res);
+      if (res.ok) {
+        setSelectedId("");
+        router.refresh();
+      }
+    } catch {
+      setResult({ ok: false, error: "Something went wrong. Please try again." });
+    } finally {
       setPending(false);
-      return;
-    }
-    formData.set("device_id", idToSend);
-    if (deviceIdRef.current) deviceIdRef.current.value = idToSend;
-    const deviceInfo = await collectDeviceInfo();
-    const deviceError = getDeviceNameRejectionError(deviceInfo.deviceName);
-    if (deviceError) {
-      setResult({ ok: false, error: deviceError });
-      setPending(false);
-      return;
-    }
-    const modelError = getModelRejectionError(deviceInfo.modelName);
-    if (modelError) {
-      setResult({ ok: false, error: modelError });
-      setPending(false);
-      return;
-    }
-    formData.set("device_info", JSON.stringify(deviceInfo));
-    const res = await submitName(formData);
-    setResult(res);
-    setPending(false);
-    if (res.ok) {
-      setSelectedId("");
-      router.refresh();
     }
   }
 

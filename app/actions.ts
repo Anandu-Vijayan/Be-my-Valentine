@@ -4,9 +4,19 @@ import { createClient } from "@/lib/supabase/server";
 import { getDeviceNameRejectionError, getModelRejectionError } from "@/lib/validate-model";
 
 const DEVICE_ID_MAX_LEN = 64;
-const VALID_DEVICE_ID = /^[a-zA-Z0-9_-]{1,64}$/;
+// Only allow IDs our client generates: UUID v4 or fallback "d-<base36>-<base36>". Rejects spoofed values.
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DEVICE_ID_FALLBACK = /^d-[a-z0-9]+-[a-z0-9]+$/i;
 const DEVICE_INFO_MAX_RAW_LEN = 8192;
 const MAX_STRING_LEN = 500;
+const NAME_ID_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ADD_NAME_MAX_LEN = 100;
+const GENERIC_ERROR = "Something went wrong. Please try again.";
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+}
 
 const DETAIL_KEYS = new Set([
   "userAgent", "platform", "language", "timeZone", "screenWidth", "screenHeight",
@@ -46,45 +56,52 @@ function sanitizeDeviceInfo(raw: Record<string, unknown>): Record<string, unknow
 export type SubmitResult = { ok: true } | { ok: false; error: string };
 
 export async function submitName(formData: FormData): Promise<SubmitResult> {
-  const nameId = formData.get("name_id");
-  if (!nameId || typeof nameId !== "string") {
-    return { ok: false, error: "Please select a name." };
-  }
+  try {
+    const nameIdRaw = formData.get("name_id");
+    const nameId = typeof nameIdRaw === "string" ? nameIdRaw.trim() : "";
+    if (!nameId || !NAME_ID_UUID.test(nameId)) {
+      return { ok: false, error: "Please select a name." };
+    }
 
-  let deviceIdRaw = formData.get("device_id");
+    let deviceIdRaw = formData.get("device_id");
   if (deviceIdRaw instanceof File) deviceIdRaw = null;
   let deviceId = (typeof deviceIdRaw === "string" ? deviceIdRaw.trim() : "") || "";
-  if (!deviceId || deviceId.length > DEVICE_ID_MAX_LEN || !VALID_DEVICE_ID.test(deviceId)) {
+  const deviceIdValid =
+    deviceId.length > 0 &&
+    deviceId.length <= DEVICE_ID_MAX_LEN &&
+    (UUID_V4.test(deviceId) || DEVICE_ID_FALLBACK.test(deviceId));
+  if (!deviceIdValid) {
     return { ok: false, error: "Device ID is missing or invalid. Please refresh and try again." };
   }
-  const deviceIdForDb = String(deviceId).slice(0, DEVICE_ID_MAX_LEN);
-  if (!deviceIdForDb) {
-    return { ok: false, error: "Device ID is missing or invalid. Please refresh and try again." };
-  }
+  const deviceIdForDb = deviceId.slice(0, DEVICE_ID_MAX_LEN);
 
-  let deviceInfo: Record<string, unknown> = {};
   const deviceInfoRaw = formData.get("device_info")?.toString();
-  if (deviceInfoRaw) {
-    if (deviceInfoRaw.length > DEVICE_INFO_MAX_RAW_LEN) {
+  if (!deviceInfoRaw || deviceInfoRaw.length > DEVICE_INFO_MAX_RAW_LEN) {
+    return { ok: false, error: "Invalid request." };
+  }
+  let deviceInfo: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(deviceInfoRaw) as unknown;
+    if (!isPlainObject(parsed)) {
       return { ok: false, error: "Invalid request." };
     }
-    try {
-      const parsed = JSON.parse(deviceInfoRaw) as Record<string, unknown>;
-      if (typeof parsed === "object" && parsed !== null) {
-        deviceInfo = parsed;
-      }
-    } catch {
-      return { ok: false, error: "Invalid request." };
-    }
+    deviceInfo = parsed;
+  } catch {
+    return { ok: false, error: "Invalid request." };
   }
 
-  const deviceName = typeof deviceInfo.deviceName === "string" ? deviceInfo.deviceName : undefined;
+  // Require deviceName and modelName from client; reject stripped or spoofed payloads missing them.
+  const deviceName = typeof deviceInfo.deviceName === "string" ? deviceInfo.deviceName.trim() : "";
+  const modelName = typeof deviceInfo.modelName === "string" ? deviceInfo.modelName.trim() : "";
+  if (!deviceName || !modelName) {
+    return { ok: false, error: "Invalid request." };
+  }
+
   const deviceError = getDeviceNameRejectionError(deviceName);
   if (deviceError) {
     return { ok: false, error: deviceError };
   }
 
-  const modelName = typeof deviceInfo.modelName === "string" ? deviceInfo.modelName : undefined;
   const modelError = getModelRejectionError(modelName);
   if (modelError) {
     return { ok: false, error: modelError };
@@ -93,6 +110,18 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   deviceInfo = sanitizeDeviceInfo(deviceInfo);
 
   const supabase = await createClient();
+
+  // Ensure name_id exists in names table (prevents fake or deleted name_id).
+  const { data: nameRow, error: nameError } = await supabase
+    .from("names")
+    .select("id")
+    .eq("id", nameId)
+    .maybeSingle();
+
+  if (nameError || !nameRow) {
+    return { ok: false, error: "Please select a name." };
+  }
+
   const safeDeviceId = deviceIdForDb;
 
   // Enforce one submission per device per name: check before insert so we can return a clear message.
@@ -100,7 +129,7 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
     .from("submissions")
     .select("id")
     .eq("device_id", safeDeviceId)
-    .eq("name_id", String(nameId))
+    .eq("name_id", nameId)
     .maybeSingle();
 
   if (existing) {
@@ -108,7 +137,7 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   }
 
   const { error } = await supabase.from("submissions").insert({
-    name_id: String(nameId),
+    name_id: nameId,
     device_id: safeDeviceId,
     device_info: deviceInfo,
   });
@@ -117,31 +146,45 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
     if (error.code === "23505") {
       return { ok: false, error: "You've already submitted this name from this device." };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: GENERIC_ERROR };
   }
   return { ok: true };
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
 }
 
 export type AddNameResult = { ok: true } | { ok: false; error: string };
 
+/** Strip control characters and limit length for safe display/storage. */
+function sanitizeName(value: string): string {
+  return value.replace(/[\x00-\x1f\x7f]/g, "").slice(0, ADD_NAME_MAX_LEN).trim();
+}
+
 export async function addName(formData: FormData): Promise<AddNameResult> {
-  const secret = process.env.ADMIN_SECRET;
-  const key = formData.get("admin_key");
-  if (!secret || key !== secret) {
-    return { ok: false, error: "Unauthorized." };
-  }
+  try {
+    const secret = process.env.ADMIN_SECRET;
+    const keyRaw = formData.get("admin_key");
+    const key = typeof keyRaw === "string" ? keyRaw : "";
+    if (!secret || key !== secret) {
+      return { ok: false, error: "Unauthorized." };
+    }
 
-  const name = formData.get("name")?.toString()?.trim();
-  if (!name) {
-    return { ok: false, error: "Enter a name." };
-  }
+    const nameRaw = formData.get("name")?.toString() ?? "";
+    const name = sanitizeName(nameRaw);
+    if (!name) {
+      return { ok: false, error: "Enter a name." };
+    }
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("names").insert({ name });
+    const supabase = await createClient();
+    const { error } = await supabase.from("names").insert({ name });
 
-  if (error) {
-    if (error.code === "23505") return { ok: false, error: "That name already exists." };
-    return { ok: false, error: error.message };
+    if (error) {
+      if (error.code === "23505") return { ok: false, error: "That name already exists." };
+      return { ok: false, error: GENERIC_ERROR };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
   }
-  return { ok: true };
 }

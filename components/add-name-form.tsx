@@ -11,12 +11,18 @@ export function AddNameForm({ adminKey }: { adminKey: string }) {
   async function handleSubmit(formData: FormData) {
     setPending(true);
     setResult(null);
-    const res = await addName(formData);
-    setResult(res);
-    setPending(false);
-    if (res.ok) {
-      (document.getElementById("add-name-input") as HTMLInputElement).value = "";
-      window.location.reload();
+    try {
+      const res = await addName(formData);
+      setResult(res);
+      if (res.ok) {
+        const el = document.getElementById("add-name-input");
+        if (el && "value" in el) (el as HTMLInputElement).value = "";
+        window.location.reload();
+      }
+    } catch {
+      setResult({ ok: false, error: "Something went wrong. Please try again." });
+    } finally {
+      setPending(false);
     }
   }
 
