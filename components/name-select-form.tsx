@@ -146,6 +146,13 @@ export function NameSelectForm({ names }: { names: Name[] }) {
   async function handleSubmit(formData: FormData) {
     setPending(true);
     setResult(null);
+    const idToSend = deviceId || getOrCreateDeviceId();
+    if (!idToSend) {
+      setResult({ ok: false, error: "Device ID could not be created. Please allow storage and refresh." });
+      setPending(false);
+      return;
+    }
+    formData.set("device_id", idToSend);
     const deviceInfo = await collectDeviceInfo();
     formData.set("device_info", JSON.stringify(deviceInfo));
     const res = await submitName(formData);
