@@ -74,7 +74,7 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   const deviceIdValid =
     deviceId.length === DEVICE_ID_UUID_LEN && DEVICE_ID_UUID_REGEX.test(deviceId);
   if (!deviceIdValid) {
-    return { ok: false, error: "Device ID is missing or invalid. Please refresh and try again." };
+    return { ok: false, error: "Nee Ichiri koodi mookanam,Ennitt vaaa appo nokkam ." };
   }
   const deviceIdPodaError = getDeviceIdPodaRejectionError(deviceId);
   if (deviceIdPodaError) {
