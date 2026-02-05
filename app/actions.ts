@@ -9,10 +9,9 @@ import {
   getModelRejectionError,
 } from "@/lib/validate-model";
 
-const DEVICE_ID_MAX_LEN = 64;
-// Only allow IDs our client generates: UUID v4 or fallback "d-<base36>-<base36>". Rejects spoofed values.
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DEVICE_ID_FALLBACK = /^d-[a-z0-9]+-[a-z0-9]+$/i;
+const DEVICE_ID_UUID_LEN = 36;
+// Only allow canonical UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (8-4-4-4-12 hex).
+const DEVICE_ID_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEVICE_INFO_MAX_RAW_LEN = 8192;
 const MAX_STRING_LEN = 500;
 const NAME_ID_UUID =
@@ -73,9 +72,7 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   if (deviceIdRaw instanceof File) deviceIdRaw = null;
   const deviceId = (typeof deviceIdRaw === "string" ? deviceIdRaw.trim() : "") || "";
   const deviceIdValid =
-    deviceId.length > 0 &&
-    deviceId.length <= DEVICE_ID_MAX_LEN &&
-    (UUID_V4.test(deviceId) || DEVICE_ID_FALLBACK.test(deviceId));
+    deviceId.length === DEVICE_ID_UUID_LEN && DEVICE_ID_UUID_REGEX.test(deviceId);
   if (!deviceIdValid) {
     return { ok: false, error: "Device ID is missing or invalid. Please refresh and try again." };
   }
@@ -83,7 +80,7 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   if (deviceIdPodaError) {
     return { ok: false, error: deviceIdPodaError };
   }
-  const deviceIdForDb = deviceId.slice(0, DEVICE_ID_MAX_LEN);
+  const deviceIdForDb = deviceId;
 
   const deviceInfoRaw = formData.get("device_info")?.toString();
   if (!deviceInfoRaw || deviceInfoRaw.length > DEVICE_INFO_MAX_RAW_LEN) {
