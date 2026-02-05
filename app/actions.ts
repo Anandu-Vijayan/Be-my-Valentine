@@ -1,5 +1,6 @@
 "use server";
 
+import { timingSafeEqual as cryptoTimingSafeEqual } from "crypto";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getFingerprintHash } from "@/lib/fingerprint";
@@ -18,6 +19,10 @@ const NAME_ID_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ADD_NAME_MAX_LEN = 100;
 const GENERIC_ERROR = "Something went wrong. Please try again.";
+const MAX_DEVICE_INFO_TOP_KEYS = 20;
+const MAX_DETAIL_KEYS = 15;
+/** 32 hex chars (MD5-style); fingerprint from getFingerprintHash. */
+const FINGERPRINT_HASH_REGEX = /^[0-9a-f]{32}$/i;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
@@ -30,8 +35,12 @@ const DETAIL_KEYS = new Set([
 
 function toStr(v: unknown): string {
   if (v == null) return "";
-  const s = String(v);
-  return s.length > MAX_STRING_LEN ? s.slice(0, MAX_STRING_LEN) : s;
+  try {
+    const s = String(v);
+    return s.length > MAX_STRING_LEN ? s.slice(0, MAX_STRING_LEN) : s;
+  } catch {
+    return "";
+  }
 }
 
 function sanitizeDeviceInfo(raw: Record<string, unknown>): Record<string, unknown> {
@@ -93,6 +102,16 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
       return { ok: false, error: "Invalid request." };
     }
     deviceInfo = parsed;
+    const topKeys = Object.keys(deviceInfo).length;
+    if (topKeys > MAX_DEVICE_INFO_TOP_KEYS) {
+      return { ok: false, error: "Invalid request." };
+    }
+    const details = deviceInfo.details;
+    if (details && typeof details === "object" && !Array.isArray(details)) {
+      if (Object.keys(details).length > MAX_DETAIL_KEYS) {
+        return { ok: false, error: "Invalid request." };
+      }
+    }
   } catch {
     return { ok: false, error: "Invalid request." };
   }
@@ -148,7 +167,7 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
   const fingerprintSecret = process.env.FINGERPRINT_SECRET?.trim();
   const fingerprintHash = getFingerprintHash(headersList, fingerprintSecret);
 
-  if (fingerprintHash) {
+  if (fingerprintHash && FINGERPRINT_HASH_REGEX.test(fingerprintHash)) {
     const { data: existingByFingerprint } = await supabase
       .from("submissions")
       .select("id")
@@ -165,7 +184,7 @@ export async function submitName(formData: FormData): Promise<SubmitResult> {
     name_id: nameId,
     device_id: safeDeviceId,
     device_info: deviceInfo,
-    ...(fingerprintHash && { fingerprint_hash: fingerprintHash }),
+    ...(fingerprintHash && FINGERPRINT_HASH_REGEX.test(fingerprintHash) && { fingerprint_hash: fingerprintHash }),
   });
 
   if (error) {
@@ -187,12 +206,26 @@ function sanitizeName(value: string): string {
   return value.replace(/[\x00-\x1f\x7f]/g, "").slice(0, ADD_NAME_MAX_LEN).trim();
 }
 
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  if (a.length === 0) return true;
+  try {
+    const bufA = Buffer.from(a, "utf8");
+    const bufB = Buffer.from(b, "utf8");
+    return bufA.length === bufB.length && bufA.length > 0
+      ? cryptoTimingSafeEqual(bufA, bufB)
+      : bufA.length === bufB.length;
+  } catch {
+    return false;
+  }
+}
+
 export async function addName(formData: FormData): Promise<AddNameResult> {
   try {
     const secret = process.env.ADMIN_SECRET;
     const keyRaw = formData.get("admin_key");
     const key = typeof keyRaw === "string" ? keyRaw : "";
-    if (!secret || key !== secret) {
+    if (!secret || !timingSafeEqual(key, secret)) {
       return { ok: false, error: "Unauthorized." };
     }
 

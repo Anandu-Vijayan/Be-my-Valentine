@@ -6,15 +6,11 @@
 const MAX_INPUT_LEN = 1000;
 const PODA_BLOCK_MESSAGE = "Njan ninta thandha";
 
-/** True if text contains "poda" in any form: normal, or spaced/split (e.g. "P O D A", "Po da"). Never throws. */
-function containsPodaVariation(value: unknown): boolean {
-  try {
-    const s = safeStr(value).replace(/\s+/g, "").toLowerCase();
-    return s.length >= 4 && s.includes("poda");
-  } catch {
-    return false;
-  }
-}
+/** Words that trigger full submission block (any casing, spaces, or symbols between letters). */
+const BLOCKED_WORDS = ["poda", "myre", "kunne", "kunna"] as const;
+
+/** Unicode whitespace (including ZWSP, NBSP, etc.) for stripping in blocked-word checks. */
+const UNICODE_WHITESPACE = /[\s\u200B-\u200D\uFEFF\u00A0\u2028\u2029]+/g;
 
 /** Safely coerce to string and cap length. Never throws. */
 function safeStr(value: unknown): string {
@@ -24,6 +20,32 @@ function safeStr(value: unknown): string {
     return s.length > MAX_INPUT_LEN ? s.slice(0, MAX_INPUT_LEN) : s;
   } catch {
     return "";
+  }
+}
+
+/** Normalize for blocked-word detection: NFKC, strip all Unicode whitespace, lowercase. Never throws. */
+function normalizeForBlockedWord(value: unknown): string {
+  try {
+    let s = safeStr(value);
+    try {
+      s = s.normalize("NFKC");
+    } catch {
+      /* normalize unsupported */
+    }
+    s = s.replace(UNICODE_WHITESPACE, "");
+    return s.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** True if text contains any blocked word (poda, myre, kunne, kunna) in any form. Never throws. */
+function containsBlockedWord(value: unknown): boolean {
+  try {
+    const s = normalizeForBlockedWord(value);
+    return BLOCKED_WORDS.some((word) => word.length >= 4 && s.includes(word));
+  } catch {
+    return false;
   }
 }
 
@@ -38,8 +60,36 @@ function isOnlyText(value: string): boolean {
   }
 }
 
-/** Text-only model names that are allowed (excluded from "only text" rejection). */
-const ALLOWED_TEXT_MODELS = new Set(["iphone", "mac", "linux", "windows","Android"]);
+/** Text-only model names that are allowed (lowercase to match model.toLowerCase()). */
+const ALLOWED_TEXT_MODELS = new Set(["iphone", "ipad", "mac", "linux", "windows", "android"]);
+
+const MAX_BLOCKED_SCAN_DEPTH = 5;
+
+/**
+ * Returns true if any blocked word (poda, myre, kunne, kunna) appears in any key or value in obj.
+ * Recursive, depth-limited. Blocks submission if client sends such content in any field.
+ */
+function objectContainsBlockedWord(obj: unknown, depth: number): boolean {
+  if (depth > MAX_BLOCKED_SCAN_DEPTH) return false;
+  if (obj == null) return false;
+  if (typeof obj === "string") return containsBlockedWord(obj);
+  if (typeof obj === "number" || typeof obj === "boolean") return containsBlockedWord(String(obj));
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      if (objectContainsBlockedWord(obj[i], depth + 1)) return true;
+    }
+    return false;
+  }
+  if (typeof obj === "object" && obj !== null) {
+    const record = obj as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+      if (containsBlockedWord(key)) return true;
+      if (objectContainsBlockedWord(record[key], depth + 1)) return true;
+    }
+  }
+  return false;
+}
 
 /** Generic message for model rejections that are not exactly "poda". */
 const MODEL_REJECT_OTHER = "This device or model cannot submit.";
@@ -48,14 +98,17 @@ const MODEL_REJECT_OTHER = "This device or model cannot submit.";
  * Returns the error message if this model name should be rejected, or null if allowed.
  * Phone model numbers (e.g. iPhone 14, SM-G991B, Pixel 7) are allowed.
  * "Poyi Tharathil Poyi kalikkada" only when model is exactly "poda".
+ * Blocked words (myre, kunne, kunna) in model return PODA_BLOCK_MESSAGE.
  * Never throws; safe for any input.
  */
 export function getModelRejectionError(modelName: string | undefined | null): string | null {
   try {
     const model = safeStr(modelName).trim();
     if (!model) return null;
+    const normalized = normalizeForBlockedWord(model);
+    if (normalized === "poda") return "Poyi Tharathil Poyi kalikkada";
+    if (containsBlockedWord(model)) return PODA_BLOCK_MESSAGE;
     const lower = model.toLowerCase();
-    if (lower === "poda") return "Poyi Tharathil Poyi kalikkada";
     if (isOnlyText(model) && !ALLOWED_TEXT_MODELS.has(lower)) {
       return MODEL_REJECT_OTHER;
     }
@@ -71,33 +124,33 @@ export function isModelNameRejected(modelName: string | undefined | null): boole
 }
 
 /**
- * True if device_id contains "poda" in any form: with spaces, dashes, underscores,
- * special chars, numbers, or mixed case (e.g. poda123, p-o-d-a, p@o#d$a). Never throws.
+ * True if device_id contains any blocked word (poda, myre, kunne, kunna) in any form.
+ * Strips non-letters then checks (e.g. k-u-n-n-e, myre123). Never throws.
  */
 export function deviceIdContainsPoda(deviceId: string | undefined | null): boolean {
   try {
     const s = safeStr(deviceId);
     const lettersOnly = s.replace(/[^\p{L}]/gu, "").toLowerCase();
-    return lettersOnly.length >= 4 && lettersOnly.includes("poda");
+    return BLOCKED_WORDS.some((word) => lettersOnly.length >= word.length && lettersOnly.includes(word));
   } catch {
     return false;
   }
 }
 
 /**
- * Returns "Njan ninta thandha" if device_id contains "poda" in any form; otherwise null.
+ * Returns "Njan ninta thandha" if device_id contains any blocked word; otherwise null.
  */
 export function getDeviceIdPodaRejectionError(deviceId: string | undefined | null): string | null {
   return deviceIdContainsPoda(deviceId) ? PODA_BLOCK_MESSAGE : null;
 }
 
 /**
- * Returns "Njan ninta thandha" when device name contains "poda" (case-insensitive).
+ * Returns "Njan ninta thandha" when device name contains any blocked word.
  * Kept for backward compatibility; prefer getDeviceInfoPodaRejectionError for full check.
  */
 export function getDeviceNameRejectionError(deviceName: string | undefined | null): string | null {
   try {
-    if (containsPodaVariation(deviceName)) return PODA_BLOCK_MESSAGE;
+    if (containsBlockedWord(deviceName)) return PODA_BLOCK_MESSAGE;
     return null;
   } catch {
     return null;
@@ -105,28 +158,15 @@ export function getDeviceNameRejectionError(deviceName: string | undefined | nul
 }
 
 /**
- * Returns "Njan ninta thandha" if any device-related field (Device Name, Model, or Details)
- * contains "poda" in any form—including spaced/split (e.g. "P O D A", "Po da", "p o d a").
- * Checks deviceName, modelName, and every string value inside details. Never throws.
+ * Returns "Njan ninta thandha" if any blocked word (poda, myre, kunne, kunna) appears
+ * anywhere in the device info payload (any key or value, including nested). Never throws.
  */
 export function getDeviceInfoPodaRejectionError(
   deviceInfo: Record<string, unknown> | null | undefined
 ): string | null {
   try {
     if (!deviceInfo || typeof deviceInfo !== "object" || Array.isArray(deviceInfo)) return null;
-    if (containsPodaVariation(deviceInfo.deviceName)) return PODA_BLOCK_MESSAGE;
-    if (containsPodaVariation(deviceInfo.modelName)) return PODA_BLOCK_MESSAGE;
-    const details = deviceInfo.details;
-    if (details && typeof details === "object" && !Array.isArray(details)) {
-      const d = details as Record<string, unknown>;
-      for (const key of Object.keys(d)) {
-        const v = d[key];
-        if (typeof v === "string" && containsPodaVariation(v)) return PODA_BLOCK_MESSAGE;
-        if (typeof v === "number" || typeof v === "boolean") {
-          if (containsPodaVariation(String(v))) return PODA_BLOCK_MESSAGE;
-        }
-      }
-    }
+    if (objectContainsBlockedWord(deviceInfo, 0)) return PODA_BLOCK_MESSAGE;
     return null;
   } catch {
     return null;
